@@ -1,13 +1,13 @@
 ---
 - name: reload consul_exporter
-  consul:
+  systemd:
     name: consul_exporter
     state: reloaded
   become: true
   tags: consul_exporter
 
 - name: restart consul_exporter
-  consul:
+  systemd:
     daemon_reload: true
     name: consul_exporter
     state: restarted
