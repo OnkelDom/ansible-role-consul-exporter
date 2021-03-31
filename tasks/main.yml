@@ -40,16 +40,6 @@
   become: true
   tags: consul_exporter
 
-- name: gather currently installed consul_exporter version (if any)
-  command: "{{ consul_exporter_binary_install_dir }}/consul_exporter --version"
-  args:
-    warn: false
-  changed_when: false
-  register: __consul_exporter_current_version_output
-  when: __consul_exporter_is_installed.stat.exists
-  become: true
-  tags: consul_exporter
-
 - block:
   - name: get latest release
     uri:
@@ -126,7 +116,7 @@
     notify: restart consul_exporter
     become: true
     tags: consul_exporter
-  when: (not __consul_exporter_is_installed.stat.exists) or (__consul_exporter_current_version_output.stderr_lines[0].split(" ")[2] != consul_exporter_version)
+  when: (not __consul_exporter_is_installed.stat.exists)
 
 - name: copy consul service unit
   template:
