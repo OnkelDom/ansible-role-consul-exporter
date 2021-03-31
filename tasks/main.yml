@@ -1,0 +1,237 @@
+---
+- name: gather operating system variables
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_distribution_file_variety | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}.yml"
+    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_version.split('.')[0] }}.yml"
+    - "{{ ansible_os_family | lower }}.yml"
+  become: true
+  tags: consul_exporter
+
+- name: create system group
+  group:
+    name: "{{ consul_exporter_system_group }}"
+    system: true
+    state: present
+  when: consul_exporter_system_group != "root"
+  become: true
+  tags: consul_exporter
+
+- name: create system user
+  user:
+    name: "{{ consul_exporter_system_user }}"
+    system: true
+    shell: "/sbin/nologin"
+    group: "{{ consul_exporter_system_group }}"
+    home: /
+    createhome: false
+  when: consul_exporter_system_user != "root"
+  become: true
+  tags: consul_exporter
+
+- name: check if consul_exporter is installed
+  stat:
+    path: "{{ consul_exporter_binary_install_dir }}/consul_exporter"
+  register: __consul_exporter_is_installed
+  become: true
+  tags: consul_exporter
+
+- name: gather currently installed consul_exporter version (if any)
+  command: "{{ consul_exporter_binary_install_dir }}/consul_exporter --version"
+  args:
+    warn: false
+  changed_when: false
+  register: __consul_exporter_current_version_output
+  when: __consul_exporter_is_installed.stat.exists
+  become: true
+  tags: consul_exporter
+
+- block:
+  - name: get latest release
+    uri:
+      url: "https://api.github.com/repos/prometheus/consul_exporter/releases/latest"
+      method: GET
+      return_content: true
+      status_code: 200
+      body_format: json
+      validate_certs: false
+      user: "{{ lookup('env', 'GH_USER') | default(omit) }}"
+      password: "{{ lookup('env', 'GH_TOKEN') | default(omit) }}"
+    environment: "{{ proxy_env }}"
+    no_log: "{{ not lookup('env', 'MOLECULE_DEBUG') | bool }}"
+    register: _latest_release
+    until: _latest_release.status == 200
+    retries: 5
+
+  - name: "set consul_exporter version to {{ _latest_release.json.tag_name[1:] }}"
+    set_fact:
+      consul_exporter_version: "{{ _latest_release.json.tag_name[1:] }}"
+  when: consul_exporter_version == "latest"
+  delegate_to: localhost
+  run_once: true
+  become: true
+  tags: consul_exporter
+
+- block:
+  - name: get checksum list from github
+    set_fact:
+      _checksums: "{{ lookup('url', 'https://github.com/prometheus/consul_exporter/releases/download/v' + consul_exporter_version + '/sha256sums.txt', wantlist=True) | list }}"
+    environment: "{{ proxy_env }}"
+    run_once: true
+    become: true
+    tags: consul_exporter
+
+  - name: "get checksum for {{ go_arch }} architecture"
+    set_fact:
+      consul_exporter_checksum: "{{ item.split(' ')[0] }}"
+    with_items: "{{ _checksums }}"
+    when: "('linux-' + go_arch + '.tar.gz') in item"
+    become: true
+    tags: consul_exporter
+
+  - name: download binary to local folder
+    get_url:
+      url: "https://github.com/prometheus/consul_exporter/releases/download/v{{ consul_exporter_version }}/consul_exporter-{{ consul_exporter_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+      dest: "/tmp"
+      checksum: "sha256:{{ consul_exporter_checksum }}"
+    environment: "{{ proxy_env }}"
+    register: _download_binary
+    until: _download_binary is success
+    retries: 5
+    delay: 2
+    delegate_to: localhost
+    check_mode: false
+    become: true
+    tags: consul_exporter
+
+  - name: unpack binary
+    unarchive:
+      src: "/tmp/consul_exporter-{{ consul_exporter_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+      dest: "/tmp"
+      creates: "/tmp/consul_exporter-{{ consul_exporter_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/consul_exporter"
+    delegate_to: localhost
+    check_mode: false
+    become: true
+    tags: consul_exporter
+
+  - name: propagate binaries
+    copy:
+      src: "/tmp/consul_exporter-{{ consul_exporter_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/consul_exporter"
+      dest: "{{ consul_exporter_binary_install_dir }}/consul_exporter"
+      mode: 0755
+    notify: restart consul_exporter
+    become: true
+    tags: consul_exporter
+  when: (not __consul_exporter_is_installed.stat.exists) or (__consul_exporter_current_version_output.stderr_lines[0].split(" ")[2] != consul_exporter_version)
+
+- name: copy consul service unit
+  template:
+    src: consul_exporter.service.j2
+    dest: /etc/systemd/system/consul_exporter.service
+    owner: root
+    group: root
+    mode: 0644
+  notify: restart consul_exporter
+  become: true
+  tags: consul_exporter
+
+- name: enable capabilities to ports lower than port 1024
+  capabilities:
+    path: "{{ consul_exporter_binary_install_dir }}/consul_exporter"
+    capability: CAP_NET_BIND_SERVICE+ep
+    state: present
+  when: consul_exporter_web_listen_port <= 1024
+  tags: consul_exporter
+
+- name: install selinux dependencies
+  package:
+    name: "{{ item }}"
+    state: present
+  environment: "{{ proxy_env }}"
+  with_items: "{{ consul_exporter_selinux_packages }}"
+  register: _install_packages
+  until: _install_packages is succeeded
+  retries: 5
+  delay: 2
+  when:
+    - ansible_version.full is version_compare('2.4', '>=')
+    - ansible_selinux.status == "enabled"
+  become: true
+  tags: consul_exporter
+
+- name: allow binding to port in selinux
+  seport:
+    ports: "{{ consul_exporter_web_listen_port }}"
+    proto: tcp
+    setype: http_port_t
+    state: present
+  when:
+    - ansible_version.full is version_compare('2.4', '>=')
+    - ansible_selinux.status == "enabled"
+  become: true
+  tags: consul_exporter
+
+- name: check whether ufw status is active
+  command: "ufw status"
+  changed_when: False
+  ignore_errors: True
+  register: _ufw_status
+  become: true
+  when:
+    - consul_exporter_allow_firewall
+    - ansible_os_family == 'Debian'
+  tags: consul_exporter
+
+- name: check whether firewalld status is active
+  command: "firewall-cmd --state"
+  changed_when: False
+  ignore_errors: True
+  register: _firewalld_status
+  become: true
+  when: ansible_os_family == 'RedHat'
+  tags: consul_exporter
+
+- name: configure ufw
+  community.general.ufw:
+    rule: allow
+    port: "{{ consul_exporter_web_listen_port }}"
+    proto: tcp
+    state: enabled
+    comment: "consul Exporter"
+  changed_when: False
+  ignore_errors: True
+  notify: reload ufw
+  become: true
+  tags: consul_exporter
+  when:
+    - "'active' in _ufw_status.stdout"
+    - ansible_os_family == 'Debian'
+    - consul_exporter_allow_firewall
+
+- name: configure firewalld
+  firewalld:
+    port: "{{ consul_exporter_web_listen_port }}/tcp"
+    permanent: yes
+    state: true
+  changed_when: False
+  ignore_errors: True
+  when:
+    - "'running' in _firewalld_status.stdout"
+    - consul_exporter_allow_firewall
+    - ansible_os_family == 'RedHat'
+  notify: reload firewalld
+  become: true
+  tags: consul_exporter
+
+- name: ensure service is started and enabled
+  consul:
+    daemon_reload: true
+    name: consul_exporter
+    state: started
+    enabled: true
+  become: true
+  tags: consul_exporter
