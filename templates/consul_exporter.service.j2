@@ -18,6 +18,7 @@ ExecStart={{ consul_exporter_binary_install_dir }}/consul_exporter \
 {% for key, value in consul_exporter_params %}
   --{{ key }} '{{ value }}' \
 {% endfor %}
+{% endif %}
   --web.listen-address '{{ consul_exporter_web_listen_address }}:{{ consul_exporter_web_listen_port }}' \
   --log.level '{{ consul_exporter_log_level }}' \
   --log.format '{{ consul_exporter_log_format }}'
