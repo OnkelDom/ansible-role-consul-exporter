@@ -11,5 +11,5 @@ consul_exporter_system_user: "{{ prometheus_user | default('prometheus') }}"
 consul_exporter_system_group: "{{ prometheus_group | default('prometheus') }}"
 consul_exporter_consul_token: "example"
 consul_exporter_params:
-  consul.server-name: "localhost:8500"
+  - "consul.server-name localhost:8500"
   

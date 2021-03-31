@@ -15,8 +15,8 @@ Group={{ consul_exporter_system_group }}
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStart={{ consul_exporter_binary_install_dir }}/consul_exporter \
 {% if consul_exporter_params | length > 0 %}
-{% for key, value in consul_exporter_params %}
-  --{{ key }} '{{ value }}' \
+{% for item in consul_exporter_params %}
+  --{{ item }} \
 {% endfor %}
 {% endif %}
   --web.listen-address '{{ consul_exporter_web_listen_address }}:{{ consul_exporter_web_listen_port }}' \

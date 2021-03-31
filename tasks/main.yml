@@ -218,7 +218,7 @@
   tags: consul_exporter
 
 - name: ensure service is started and enabled
-  consul:
+  systemd:
     daemon_reload: true
     name: consul_exporter
     state: started
