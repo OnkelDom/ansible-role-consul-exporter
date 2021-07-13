@@ -33,7 +33,6 @@ All variables which can be overridden are stored in [defaults/main.yml](defaults
 | `consul_exporter_web_listen_port` | 9107 | Set exporter listen-port |
 | `consul_exporter_log_level` | warn | Loglevel for the exporter |
 | `consul_exporter_log_format` | "logger:stdout?json=true" | Logformat for the exporter |
-| `consul_exporter_allow_firewall` | false | Enabled/Disabled Firewalld and open the port |
 | `consul_exporter_binary_local_dir` | /usr/local/bin | Binary Path |
 | `consul_exporter_system_user` | prometheus | Set exporters system user |
 | `consul_exporter_system_group` | prometheus | Set exporters system group |

@@ -13,17 +13,3 @@
     state: restarted
   become: true
   tags: consul_exporter
-
-- name: reload ufw
-  consul:
-    name: ufw
-    state: reloaded
-  tags: consul_exporter
-  become: true
-
-- name: reload firewalld
-  consul:
-    name: firewalld
-    state: reloaded
-  tags: consul_exporter
-  become: true
