@@ -19,7 +19,6 @@ Deploy and manage consul-exporter [Consul Exporter](https://github.com/prometheu
 ## Requirements
 
 - Ansible >= 2.9 (It might work on previous versions, but we cannot guarantee it)
-- Community Packages: `ansible-galaxy collection install community.general`
 
 ## Role Variables
 
